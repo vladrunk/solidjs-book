@@ -5,7 +5,7 @@
 
 ## Читать книгу
 
-📖 **[solidjs-book.md](./solidjs-book.md)**
+📖 **[solidjs-book.md](./index.md)**
 
 GitHub рендерит Markdown с навигацией по якорям — все ссылки в содержании кликабельны.
 
