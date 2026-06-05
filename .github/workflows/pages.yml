@@ -20,31 +20,224 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install pandoc
-        run: sudo apt-get install -y pandoc
-
-      - name: Create output dir
-        run: mkdir -p _site
-
-      - name: Convert Markdown to HTML
+      - name: Install mdBook
         run: |
-          pandoc index.md \
-            --standalone \
-            --toc \
-            --toc-depth=2 \
-            --highlight-style=tango \
-            --metadata title="SolidJS — Полное руководство на русском" \
-            -V lang=ru \
-            -V charset=utf-8 \
-            -V "css=style.css" \
-            -o _site/index.html
+          curl -sSL https://github.com/rust-lang/mdBook/releases/download/v0.4.40/mdbook-v0.4.40-x86_64-unknown-linux-gnu.tar.gz \
+            | tar -xz --directory=/usr/local/bin
 
-      - name: Copy stylesheet
-        run: cp style.css _site/style.css 2>/dev/null || true
+      - name: Prepare mdBook structure
+        run: |
+          mkdir -p book-src
+          # book.toml — config
+          cat > book.toml << 'TOML'
+          [book]
+          title = "SolidJS — Полное руководство"
+          language = "ru"
+          multilingual = false
+          src = "book-src"
+
+          [output.html]
+          default-theme = "coal"
+          preferred-dark-theme = "coal"
+          git-repository-url = "https://github.com/vladrunk/solidjs-book"
+          git-repository-icon = "fa-github"
+          edit-url-template = "https://github.com/vladrunk/solidjs-book/edit/main/{path}"
+          additional-css = ["book-src/custom.css"]
+          additional-js = ["book-src/custom.js"]
+          mathjax-support = false
+          no-section-label = true
+
+          [output.html.search]
+          enable = true
+          limit-results = 20
+          use-boolean-and = true
+          boost-title = 3
+          boost-hierarchy = 2
+          boost-paragraph = 1
+          expand = true
+          heading-split-level = 2
+          TOML
+
+      - name: Create SUMMARY and content
+        run: |
+          # Split the main markdown file into chapters by "# Часть"
+          python3 << 'PYEOF'
+          import re, os
+
+          with open("index.md", "r") as f:
+              content = f.read()
+
+          os.makedirs("book-src", exist_ok=True)
+
+          # Extract TOC (everything before first # Часть)
+          intro_end = content.find("\n# Часть I")
+          intro = content[:intro_end].strip()
+
+          # Write intro page
+          with open("book-src/intro.md", "w") as f:
+              f.write("# SolidJS — Полное руководство на русском\n\n")
+              f.write("> ⚠️ **Важно:** книга создана с помощью Claude (Anthropic) на основе документации SolidJS (июнь 2026). ")
+              f.write("Могут быть неточности. Нашёл ошибку — [открой Issue](https://github.com/vladrunk/solidjs-book/issues).\n\n")
+              # include the TOC
+              f.write(intro)
+
+          # Split into parts
+          parts = re.split(r'\n(?=# Часть )', content[intro_end:])
+          parts = [p for p in parts if p.strip().startswith("# Часть")]
+
+          summary_lines = ["# Содержание\n\n"]
+          summary_lines.append("[Введение](intro.md)\n\n")
+
+          roman = {"I":"01","II":"02","III":"03","IV":"04","V":"05","VI":"06",
+                   "VII":"07","VIII":"08","IX":"09","X":"10","XI":"11","XII":"12",
+                   "XIII":"13","XIV":"14","XV":"15","XVI":"16","XVII":"17",
+                   "XVIII":"18","XIX":"19","XX":"20","XXI":"21","XXII":"22","XXIII":"23"}
+
+          for part in parts:
+              # Part title line
+              first_line = part.split("\n")[0].strip()
+              # Extract roman numeral
+              m = re.match(r'# Часть ([IVXLCDM]+)\s*[—–-]\s*(.+)', first_line)
+              if not m:
+                  continue
+              num_roman = m.group(1)
+              part_title = m.group(2).strip()
+              num = roman.get(num_roman, "XX")
+              filename = f"part{num}.md"
+
+              # Write part file
+              with open(f"book-src/{filename}", "w") as f:
+                  f.write(part)
+
+              summary_lines.append(f"- [Часть {num_roman} — {part_title}]({filename})\n")
+
+          summary_lines.append("\n---\n\n[GitHub](https://github.com/vladrunk/solidjs-book)\n")
+
+          with open("book-src/SUMMARY.md", "w") as f:
+              f.writelines(summary_lines)
+
+          print(f"Created {len(parts)} part files")
+          PYEOF
+
+      - name: Create custom CSS (dark theme tweaks)
+        run: |
+          cat > book-src/custom.css << 'CSS'
+          /* Custom styles for SolidJS Book */
+          :root {
+              --solidjs-blue: #2c6fef;
+              --solidjs-blue-dark: #1a56c9;
+          }
+
+          /* Coal theme overrides */
+          .coal {
+              --bg: #1a1a2e;
+              --fg: #c9d1d9;
+              --sidebar-bg: #0d1117;
+              --sidebar-fg: #c9d1d9;
+              --sidebar-active: #58a6ff;
+              --links: #58a6ff;
+              --inline-code-color: #ff7b72;
+              --theme-popup-bg: #161b22;
+              --theme-popup-border: #30363d;
+              --quote-bg: #161b22;
+              --quote-border: var(--solidjs-blue);
+              --table-border-color: #30363d;
+              --table-header-bg: #161b22;
+              --searchresults-header-fg: #c9d1d9;
+              --searchresults-border-color: #30363d;
+              --searchresults-li-bg: #161b22;
+              --search-mark-bg: #1a3a6e;
+          }
+
+          /* Code blocks */
+          .hljs {
+              background: #0d1117 !important;
+              border: 1px solid #30363d;
+              border-radius: 8px;
+              font-size: 0.875em;
+          }
+
+          pre {
+              border-radius: 8px;
+          }
+
+          /* Inline code */
+          code:not(.hljs) {
+              background: #161b22;
+              border: 1px solid #30363d;
+              border-radius: 4px;
+              padding: 0.1em 0.4em;
+              font-size: 0.875em;
+              color: #ff7b72;
+          }
+
+          /* Tables */
+          table {
+              border-collapse: collapse;
+              width: 100%;
+          }
+          th {
+              background: #161b22;
+          }
+          td, th {
+              border: 1px solid #30363d;
+              padding: 8px 12px;
+          }
+          tr:nth-child(even) {
+              background: #0d1117;
+          }
+
+          /* Chapter headings */
+          h1 { border-bottom: 2px solid #30363d; padding-bottom: 0.3em; }
+          h2 { border-bottom: 1px solid #30363d; padding-bottom: 0.2em; }
+
+          /* Sidebar active item */
+          .chapter li.active > a {
+              color: #58a6ff;
+              font-weight: 600;
+          }
+
+          /* Content width */
+          .content { max-width: 900px; }
+
+          /* Blockquote — warning style */
+          blockquote {
+              border-left: 4px solid var(--solidjs-blue);
+              background: #0d1117;
+              border-radius: 0 6px 6px 0;
+          }
+
+          /* Nav buttons */
+          .nav-chapters { font-size: 1em; }
+
+          /* Search */
+          #searchbar {
+              background: #161b22;
+              border: 1px solid #30363d;
+              color: #c9d1d9;
+              border-radius: 6px;
+          }
+          CSS
+
+      - name: Create custom JS
+        run: |
+          cat > book-src/custom.js << 'JS'
+          // Set dark theme by default if not set
+          (function() {
+            var theme = localStorage.getItem('mdbook-theme');
+            if (!theme) {
+              localStorage.setItem('mdbook-theme', 'coal');
+              document.documentElement.className = 'coal';
+            }
+          })();
+          JS
+
+      - name: Build book
+        run: mdbook build
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: _site
+          path: book
 
   deploy:
     needs: build
